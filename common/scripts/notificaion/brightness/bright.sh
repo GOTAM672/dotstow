@@ -11,7 +11,7 @@
 function get_brightness {
   # y=$(brightnessctl get)
   # x=$(($y/1000)) 
-  echo $(($(brightnessctl get)/640)) 
+  echo $(($(brightnessctl get)*3/5)) 
 
 
   # brightnessctl get | cut -d '.' -f 1

@@ -58,17 +58,17 @@ up)
   bool_mute=$(is_mute)
 
 	if [ "$volume" -lt "65" ]; then
-		if [ $bool_mute = "false" ]; then
+		# if [ $bool_mute = "false" ]; then
 			pamixer -i 5
-		fi
+		# fi
 		send_notification
 	fi
 	;;
 down)
-	bool_mute=$(is_mute)
-	if [ $bool_mute = "false" ]; then
+	# bool_mute=$(is_mute)
+	# if [ $bool_mute = "false" ]; then
 		pamixer -d 5
-	fi
+	# fi
 	send_notification
 	;;
 mute)
