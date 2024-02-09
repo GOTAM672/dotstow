@@ -1,0 +1,319 @@
+# custom lf settings based on luke
+
+
+# Note on Image Previews
+# 1. ueberzugpp must be installed for previews in tmux and other terminals than kitty(opened with command lfp or lfu)
+# 2. cptv must be installed to view previews if (opened with command lf)
+# 3. preview and cleaner files are for viewing previews from ueberzugpp, 
+#    and are activated through a wrapper called ub-lfub.sh
+# 4. so lf should be started with ub-lfub.sh wrapper if ueberzugpp is desired to be used as previewer
+#    so I customized ub-lfub to start lf using another config file saved in kitty folder with same contents,
+#    but previewers setted as ueberzugpp instead of cptv(which is the case in normal lf config file).
+# 5. if want to use cptv for previews (which does not work well in tmux), then start lf with normal lf command
+
+# Basic vars
+set shellopts '-eu'
+set ifs "\n"
+set scrolloff 10
+set icons
+set period 1
+set hiddenfiles ".*:*.aux:*.log:*.bbl:*.bcf:*.blg:*.run.xml"
+
+### For kitty only (does not work well in tmux but is better otherwise)
+# set previewer ctpv
+# set cleaner ctpvclear
+# &ctpv -s $id
+# &ctpvquit $id
+
+### For other terminals than kitty or in tmux which uses ueberzugpp
+set previewer '~/.config/lf/preview'
+set cleaner '~/.config/lf/cleaner'
+set drawbox
+
+cmd eval &{{ # way to evaluate env var through eval
+    cmd="send $id"
+    for arg; do
+        cmd="$cmd $(eval "printf '%q' \"$arg\"")"
+    done
+    lf -remote "$cmd"
+}}
+
+# cmd previewer_settings ${{ -- cannot figure a way
+#   if { [ -n "$TMUX" ]; } then # if in tmux
+#  lf -remote "send $id eval set previewer '~/.config/lf/preview'"
+#  lf -remote "send $id eval set cleaner '~/.config/lf/cleaner'"
+#   elif { ! [ $TERM == "xterm-kitty" ]; } then # if any other terminal than kitty
+#  lf -remote "send $id eval set previewer '~/.config/lf/preview'"
+#  lf -remote "send $id eval set cleaner '~/.config/lf/cleaner'"
+#   else
+#  lf -remote "send $id eval set previewer ctpv"
+#  lf -remote "send $id eval set cleaner ctpvclear"
+#  lf -remote "send $id eval &ctpv -s $id"
+#  lf -remote "send $id eval &ctpvquit $id"
+#   fi
+# }}
+# :previewer_settings
+
+# cmds/functions
+cmd open ${{
+    case $(file --mime-type "$(readlink -f $f)" -b) in
+	application/vnd.openxmlformats-officedocument.spreadsheetml.sheet) localc $fx ;;
+	image/vnd.djvu|application/pdf|application/octet-stream|application/postscript) setsid -f zathura $fx >/dev/null 2>&1 ;;
+        text/*|application/json|inode/x-empty) $EDITOR $fx;;
+	image/x-xcf) setsid -f gimp $f >/dev/null 2>&1 ;;
+	image/svg+xml) display -- $f ;;
+	# image/*) sxiv $f ;;
+	image/*) imv $f ;;
+	audio/*) mpv --audio-display=no $f ;;
+	video/*) setsid -f mpv $f -quiet >/dev/null 2>&1 ;;
+
+  # for ppts
+	application/vnd.openxmlformats-officedocument.presentationml.presentation|vnd.ms-powerpoint) zaread $fx >/dev/null 2>&1 ;;
+
+	application/pdf|application/vnd*|application/epub*) setsid -f zathura $fx >/dev/null 2>&1 ;;
+	# application/djvu) setsid -f evincej $fx >/dev/null 2>&1 ;;
+	application/pgp-encrypted) $EDITOR $fx ;;
+        *) for f in $fx; do setsid -f $OPENER $f >/dev/null 2>&1; done;;
+    esac
+}}
+
+# cmd mkdir $mkdir -p "$(echo $* | tr ' ' '\ ')"
+cmd mkdir %mkdir -p "$@" # this will create multiple nested dirs passed as arguments(copied from website tips)
+# cmd touch $touch "$(echo $*)"
+cmd touch %touch "$@" # this will create multiple files as arguments
+
+cmd extract ${{
+	clear; tput cup $(($(tput lines)/3)); tput bold
+	set -f
+	printf "%s\n\t" "$fx"
+	printf "extract?[y/N]"
+	read ans
+	[ $ans = "y" ] && aunpack $fx
+}}
+
+cmd delete ${{
+	clear; tput cup $(($(tput lines)/3)); tput bold
+	set -f
+	printf "%s\n\t" "$fx"
+	printf "delete?[y/N]"
+	read ans
+	[ $ans = "y" ] && rm -rf -- $fx
+}}
+
+cmd moveto ${{
+	clear; tput cup $(($(tput lines)/3)); tput bold
+	set -f
+	clear; echo "Move to where?"
+	# dest="$(sed -e 's/\s*#.*//' -e '/^$/d' -e 's/^\S*\s*//' ${XDG_CONFIG_HOME:-$HOME/.config}/shell/bm-dirs | fzf | sed 's|~|$HOME|')" &&
+	dest="$(fd . ${1:-$HOME} -t d -u 2> /dev/null | fzf --layout=reverse +m --preview 'tree -C {} | head -200')" &&
+	for x in $fx; do
+		eval mv -iv \"$x\" \"$dest\"
+	done &&
+	notify-send "🚚 File(s) moved." "File(s) moved to $dest."
+}}
+
+cmd copyto ${{
+	clear; tput cup $(($(tput lines)/3)); tput bold
+	set -f
+	clear; echo "Copy to where?"
+	# dest="$(sed -e 's/\s*#.*//' -e '/^$/d' -e 's/^\S*\s*//' ${XDG_CONFIG_HOME:-$HOME/.config}/shell/bm-dirs | fzf | sed 's|~|$HOME|')" &&
+	dest="$(fd . ${1:-$HOME} -t d -u 2> /dev/null | fzf --layout=reverse +m --preview 'tree -C {} | head -200')" &&
+	for x in $fx; do
+		eval cp -ivr \"$x\" \"$dest\"
+	done &&
+	notify-send "📋 File(s) copied." "File(s) copies to $dest."
+}}
+
+cmd bulkrename ${{ # copied from lf wiki
+    old="$(mktemp)"
+    new="$(mktemp)"
+    if [ -n "$fs" ]; then
+        fs="$(basename -a $fs)"
+    else
+        fs="$(ls)"
+    fi
+    printf '%s\n' "$fs" >"$old"
+    printf '%s\n' "$fs" >"$new"
+    $EDITOR "$new"
+    [ "$(wc -l < "$new")" -ne "$(wc -l < "$old")" ] && exit
+    paste "$old" "$new" | while IFS= read -r names; do
+        src="$(printf '%s' "$names" | cut -f1)"
+        dst="$(printf '%s' "$names" | cut -f2)"
+        if [ "$src" = "$dst" ] || [ -e "$dst" ]; then
+            continue
+        fi
+        mv -- "$src" "$dst"
+    done
+    rm -- "$old" "$new"
+    lf -remote "send $id unselect"
+}}
+
+cmd bulk-rename2 ${{  # this seems to work
+	index=$(mktemp /tmp/lf-bulk-rename-index.XXXXXXXXXX)
+	if [ -n "${fs}" ]; then
+		echo "$fs" > $index
+	else
+		# echo "$(ls "$(dirname $f)" | tr ' ' "\n")" > $index
+		echo "$(ls -1 -d "$PWD/"* "$(dirname $f)" | tr ' ' "\n")" > $index
+	fi
+	index_edit=$(mktemp /tmp/lf-bulk-rename.XXXXXXXXXX)
+	cat $index > $index_edit
+	$EDITOR $index_edit
+	if [ $(cat $index | wc -l) -eq $(cat $index_edit | wc -l) ]; then
+		max=$(($(cat $index | wc -l)+1))
+		counter=1
+		while [ $counter -le $max ]; do
+			a="$(cat $index | sed "${counter}q;d")"
+			b="$(cat $index_edit | sed "${counter}q;d")"
+			counter=$(($counter+1))
+			
+			[ "$a" = "$b" ] && continue
+			[ -e "$b" ] && echo "File exists: $b" && continue
+			mv "$a" "$b"
+		done
+	else
+		echo "Number of lines must stay the same"
+	fi
+	rm $index $index_edit
+}}
+
+cmd bulk-rename ${{  # this seems to work
+	index=$(mktemp /tmp/lf-bulk-rename-index.XXXXXXXXXX)
+	if [ -n "${fs}" ]; then
+		echo "$(echo -e "$fx" | awk -F '/' '{print $NF}')" > $index
+	else
+		echo "$(ls "$(dirname $f)" | tr ' ' "\n")" > $index
+	fi
+	index_edit=$(mktemp /tmp/lf-bulk-rename.XXXXXXXXXX)
+	cat $index > $index_edit
+	$EDITOR $index_edit
+	if [ $(cat $index | wc -l) -eq $(cat $index_edit | wc -l) ]; then
+		max=$(($(cat $index | wc -l)+1))
+		counter=1
+		while [ $counter -le $max ]; do
+			a="$(cat $index | sed "${counter}q;d")"
+			b="$(cat $index_edit | sed "${counter}q;d")"
+			counter=$(($counter+1))
+			
+			[ "$a" = "$b" ] && continue
+			[ -e "$b" ] && echo "File exists: $b" && continue
+			mv "$a" "$b"
+		done
+	else
+		echo "Number of lines must stay the same"
+	fi
+	rm $index $index_edit
+}}
+
+# cmd setbg "$1"
+cmd bck ${{ # this seems to be working
+    swaybg -i "$f" &
+    pkill -SIGUSR1 '^waybar$';
+    pkill -SIGUSR1 '^waybar$';
+  }}
+
+# for setting wallpaper with pywall
+cmd bckp ${{
+    swaybg -i "$f" &
+    wal -i "$f" > /dev/null &
+    pkill -SIGUSR1 '^waybar$';
+    pkill -SIGUSR1 '^waybar$';
+  }}
+
+## Lsd to display about file at bottom
+cmd on-select &{{
+    lf -remote "send $id set statfmt \"$(lsd -ld --color=always "$f")\""
+}}
+
+## Toggle preview
+cmd toggle_preview %{{
+    if [ "$lf_preview" = "true" ]; then
+        lf -remote "send $id :set preview false; set ratios 1:5"
+    else
+        lf -remote "send $id :set preview true; set ratios 1:2:3"
+    fi
+}}
+
+cmd move-parent &{{
+    dironly="setlocal '$(dirname "$PWD")' dironly"
+    lf -remote "send $id :updir; $dironly true; $1; $dironly false; open"
+}}
+
+cmd quit-and-cd &{{
+    pwd > $LF_CD_FILE
+    lf -remote "send $id quit"
+}}
+
+map Q quit-and-cd
+
+map J move-parent down
+map K move-parent up
+
+# cmd bulkdirrename $vidir
+cmd bulk_delete $vimv $(ls -1 -d "$PWD/"* "$(dirname $f)" | tr ' ' "\n")
+cmd bulk_delete_selelected $vimv $fx
+
+# Bindings
+# map <c-f> $lf -remote "send $id select \"$(find ${1:-~} 2> /dev/null | fzf --layout=reverse +m)\""
+map gf $lf -remote "send $id select \"$(fd . ${1:-$HOME} -u -tf -ts 2> /dev/null | fzf --layout=reverse +m --preview='bat --color=always {}')\""
+map <c-f> $lf -remote "send $id select \"$(fd . ${1:-$HOME} -tf -ts 2> /dev/null | fzf --layout=reverse +m --preview='bat --color=always {}')\"" # search only normal files
+map gz $lf -remote "send $id select \"$(fd . -u -tf -ts 2> /dev/null | fzf --layout=reverse +m --preview='bat --color=always {}')\""
+map gZ $lf -remote "send $id select \"$(fd . -u -td 2> /dev/null | fzf --layout=reverse +m --preview='bat --color=always {}')\""
+map gd $lf -remote "send $id select \"$(fd . ${1:-$HOME} -td 2> /dev/null | fzf --layout=reverse +m --preview 'tree -C {} | head -200')\""
+map gD $lf -remote "send $id select \"$(fd . ${1:-$HOME} -u -td 2> /dev/null | fzf --layout=reverse +m --preview 'tree -C {} | head -200')\""
+# map J $lf -remote "send $id cd $(sed -e 's/\s*#.*//' -e '/^$/d' -e 's/^\S*\s*//' ${XDG_CONFIG_HOME:-$HOME/.config}/shell/bm-dirs | fzf)"
+map zp toggle_preview
+# map g top
+map gg top
+map D delete
+map E extract
+map C copyto
+map M moveto
+map <c-n> push :mkdir<space>
+map <c-t> push :touch<space>
+map <c-r> reload
+# map <c-s> set hidden!
+map . set hidden!
+map <enter> shell
+
+# map x $$f # didn't know what these do
+# map X !$f
+
+map o &mimeopen $f
+map O $mimeopen --ask $f
+
+map c push i<c-e><c-u> # new rename
+map A push i<c-e>  # at the very end
+map I push i<c-a> # at the very beginning
+map a push i<a-f><a-b> # after extension(dot)
+map i rename # before extension
+# map i push A<a-b><a-b><a-f> # before extension(dot)
+
+# map bg bulk-rename # only file name
+map bg bulkrename # only file name ( but copied from lf wiki)
+map bG bulk-rename2 # full path
+map bd bulk_delete_selelected
+map bD bulk_delete
+
+map w bck 
+map W bckp
+
+map <c-e> down
+map <c-y> up
+map V push :!nvim<space>
+
+# map W $setsid -f $TERMINAL >/dev/null 2>&1
+
+map Y $printf "%s" "$fx" | wl-copy # copy path of cuurent object in clipboard
+
+map gc cd ~/.config #started working 
+map gh cd ~/
+
+# Source Bookmarks
+source "~/.config/lf/shortcutrc"
+
+### Some default keybindings -
+# "space" for selection, then d for cut and y for copy
+# "v" for inverting selection
+# "clear for clearing the cut and copy selection"
+# "p" for pasting

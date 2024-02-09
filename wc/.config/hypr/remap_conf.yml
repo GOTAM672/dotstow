@@ -1,0 +1,4 @@
+modmap:
+  - name: Global
+    remap:
+     KEY_SYSRQ : KEY_RIGHTCTRL
